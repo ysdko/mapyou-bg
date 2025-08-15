@@ -23,7 +23,7 @@ func main() {
 		log.Printf("initial ensure failed: %v", err)
 	}
 
-	// 毎日 00:01 JST に実行
+	// 日付が変わったタイミングで実行
 	go func() {
 		for {
 			sleepUntil := nextJSTMidnightPlus(time.Now(), 1)
@@ -34,12 +34,23 @@ func main() {
 		}
 	}()
 
-	// ルータ
+	//　CORS 設定
 	r := gin.Default()
-	r.Use(cors.Default())
+	allowOrigin := os.Getenv("ALLOWED_ORIGINS")
+	cfg := cors.Config{
+	  AllowOrigins:     []string{allowOrigin},
+	  AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+	  AllowHeaders:     []string{"Content-Type", "Authorization"},
+	  ExposeHeaders:    []string{"Content-Length"},
+	  AllowCredentials: true, 
+	  MaxAge:           12 * time.Hour,
+	}
+	r.Use(cors.New(cfg))
 
 	// ルート
 	r.GET("/events/today", getTodayEventsHandler)
+	r.POST("/reviews", postEventMessageHandler)
+	r.GET("/reviews/:event_id", getEventReviewHandler)
 
 	log.Println("server :8080")
 	if err := r.Run(":8080"); err != nil {

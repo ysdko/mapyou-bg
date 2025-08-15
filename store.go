@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // ---- モデル・定数 ----
@@ -27,6 +28,16 @@ type Event struct {
 	Category     string    `json:"category"`
 	IconCategory int       `json:"icon_category"`
 }
+
+type Review struct {
+	ID        int64     `json:"id"`
+	UserID    string    `json:"user_id"`
+	EventID   int       `json:"event_id"`
+	Rating    int       `json:"rating"`
+	Comment   string    `json:"comment"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 
 const dataDir = "data"
 
@@ -123,7 +134,7 @@ func writeJsonForDateFromDB(day time.Time) error {
 	return os.WriteFile(path, b, 0o644)
 }
 
-// ---- DB アクセス（既存: イベント取得）----
+// ---- DB アクセス（イベント取得）----
 
 func fetchEventsForDate(day time.Time) ([]Event, error) {
 	dateStr := day.Format("2006-01-02")
@@ -164,4 +175,78 @@ func fetchEventsForDate(day time.Time) ([]Event, error) {
 		results = append(results, e)
 	}
 	return results, rows.Err()
+}
+
+// ---- DB アクセス（メッセージ挿入）----
+
+func insertEventMessage(ctx context.Context, userID string, eventID int, comment string, rating int) error {
+	fmt.Println("erroraaaaaafefweasfsedgagsa")
+	conn, err := pgx.Connect(ctx, os.Getenv("DATABASE_URL"))
+	fmt.Println("erroraaaaaafefweasfsedgagsa")
+	if err != nil {
+
+		return fmt.Errorf("DB接続失敗: %w", err)
+	}
+	defer conn.Close(ctx)
+
+	const q = `
+		INSERT INTO reviews (event_id, user_id, comment, rating)
+		VALUES ($1, $2, $3, $4)
+	`
+	fmt.Println("error:")
+
+	// Exec で実行
+	_, err = conn.Exec(ctx, q, eventID, userID, comment, rating)
+	fmt.Println("error:", err)
+	if err != nil {
+		// 詳細ログを出力
+		fmt.Printf("insert error (raw): %+v\n", err)
+		if pgErr, ok := err.(*pgconn.PgError); ok {
+			fmt.Printf("insert error detail: Code=%s Message=%s Detail=%s Where=%s\n",
+				pgErr.Code, pgErr.Message, pgErr.Detail, pgErr.Where)
+			return fmt.Errorf("insert失敗: code=%s message=%s detail=%s where=%s",
+				pgErr.Code, pgErr.Message, pgErr.Detail, pgErr.Where)
+		}
+		return fmt.Errorf("insert失敗: %w", err)
+	}
+
+	fmt.Println("insert成功:", eventID, userID, comment, rating)
+	return nil
+}
+
+func queryEventReviews(ctx context.Context, eventID int) ([]Review, error) {
+	// 都度コネクションを開く（必要に応じてコネクションプール化推奨）
+	conn, err := pgx.Connect(ctx, os.Getenv("DATABASE_URL"))
+	if err != nil {
+		return nil, fmt.Errorf("DB接続失敗: %w", err)
+	}
+	defer conn.Close(ctx)
+
+	const q = `
+		SELECT id, user_id, event_id, rating, comment, created_at
+		FROM reviews
+		WHERE event_id = $1
+		ORDER BY created_at DESC
+		LIMIT 100
+	`
+	rows, err := conn.Query(ctx, q, eventID)
+	if err != nil {
+		return nil, fmt.Errorf("select失敗: %w", err)
+	}
+	defer rows.Close()
+
+	var reviews []Review
+	for rows.Next() {
+		var r Review
+		if err := rows.Scan(&r.ID, &r.UserID, &r.EventID, &r.Rating, &r.Comment, &r.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan失敗: %w", err)
+		}
+		reviews = append(reviews, r)
+	}
+
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("rowsエラー: %w", rows.Err())
+	}
+
+	return reviews, nil
 }
