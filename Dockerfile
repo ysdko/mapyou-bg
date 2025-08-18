@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1
 
+
+
 # ---- Build stage ----
 FROM golang:1.23-alpine AS builder
 WORKDIR /app
@@ -27,7 +29,7 @@ WORKDIR /app
 # data ディレクトリ（JSON 保存先）
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=builder /app/server /app/server
-COPY --from=builder /app/data /app/data
+COPY --chown=65532:65532 --from=builder /app/data /app/data
 
 # ポートは Gin 側で :8080
 EXPOSE 8080
