@@ -13,6 +13,7 @@ import (
 )
 
 func getTodayEventsHandler(c *gin.Context) {
+	fmt.Println("getTodayEventsHandler called")
 	jst := mustJST()
 	today := time.Now().In(jst)
 	path := jsonPathForDate(today)
@@ -20,6 +21,7 @@ func getTodayEventsHandler(c *gin.Context) {
 	// ないなら作る（ついでに古いの掃除）
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		if err := writeJsonForDateFromDB(today); err != nil {
+			fmt.Printf("Failed to prepare today json: %v\n", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to prepare today json"})
 			return
 		}

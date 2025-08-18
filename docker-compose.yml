@@ -1,0 +1,16 @@
+version: "3.9"
+services:
+  api:
+    build: .
+    container_name: events-api-go
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      - TZ=Asia/Tokyo
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
+      - DATABASE_URL=${DATABASE_URL}
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
