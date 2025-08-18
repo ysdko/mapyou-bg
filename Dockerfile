@@ -27,7 +27,7 @@ WORKDIR /app
 # data ディレクトリ（JSON 保存先）
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=builder /app/server /app/server
-
+COPY --from=builder /app/data /app/data
 
 # ポートは Gin 側で :8080
 EXPOSE 8080
