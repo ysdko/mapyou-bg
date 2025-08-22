@@ -1,4 +1,7 @@
 # MAPYOU
+## デプロイURL
+[https://main.d3tupdd79qf6vp.amplifyapp.com/](https://www.map-you.com)
+
 
 ## 目的
 - 首都圏の遊び向けイベント情報を、ユーザーが地図上で直感的に探せるようにする。
@@ -7,8 +10,6 @@
 
 ![img1](doc/mapyou-main.png)
 
-## デプロイURL
-https://main.d3tupdd79qf6vp.amplifyapp.com/
 
 ## アーキテクチャ図
 ![img2](doc/mapyou-architecture.drawio.png)
