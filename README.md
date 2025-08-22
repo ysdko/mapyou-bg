@@ -1,6 +1,6 @@
 # MAPYOU
 ## デプロイURL
-[https://main.d3tupdd79qf6vp.amplifyapp.com/](https://www.map-you.com)
+https://www.map-you.com/
 
 
 ## 目的
