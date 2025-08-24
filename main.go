@@ -18,21 +18,6 @@ func main() {
 	}
 
 
-	// 起動時に今日のファイルを用意＆古いファイル掃除
-	if err := ensureTodayFileAndCleanup(); err != nil {
-		log.Printf("initial ensure failed: %v", err)
-	}
-
-	// 日付が変わったタイミングで実行
-	go func() {
-		for {
-			sleepUntil := nextJSTMidnightPlus(time.Now(), 1)
-			time.Sleep(time.Until(sleepUntil))
-			if err := ensureTodayFileAndCleanup(); err != nil {
-				log.Printf("daily ensure failed: %v", err)
-			}
-		}
-	}()
 
 	//　CORS 設定
 	r := gin.Default()
@@ -48,7 +33,7 @@ func main() {
 	r.Use(cors.New(cfg))
 
 	// ルート
-	r.GET("/events/today", getTodayEventsHandler)
+	r.GET("/events/bounds", getEventsBoundsHandler)
 	r.POST("/reviews", postEventMessageHandler)
 	r.GET("/reviews/:event_id", getEventReviewHandler)
 

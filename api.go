@@ -5,36 +5,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
-func getTodayEventsHandler(c *gin.Context) {
-	fmt.Println("getTodayEventsHandler called")
-	jst := mustJST()
-	today := time.Now().In(jst)
-	path := jsonPathForDate(today)
-
-	// ないなら作る（ついでに古いの掃除）
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		if err := writeJsonForDateFromDB(today); err != nil {
-			fmt.Printf("Failed to prepare today json: %v\n", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to prepare today json"})
-			return
-		}
-		_ = cleanupOldFiles(today)
-	}
-
-	events, err := readEventsFromFile(path)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read json"})
-		return
-	}
-	c.JSON(http.StatusOK, events)
-}
 
 func postEventMessageHandler(c *gin.Context) {
 	// --- デバッグ: Raw Body を出したい場合は最初に読み込む ---
@@ -103,5 +79,56 @@ func getEventReviewHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, reviews)
+}
+
+func getEventsBoundsHandler(c *gin.Context) {
+	fmt.Println("getEventsBoundsHandler called")
+	ctx := c.Request.Context()
+	
+	// クエリパラメータから境界座標を取得
+	northStr := c.Query("north")
+	southStr := c.Query("south")
+	eastStr := c.Query("east")
+	westStr := c.Query("west")
+	
+	if northStr == "" || southStr == "" || eastStr == "" || westStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing required parameters: north, south, east, west"})
+		return
+	}
+	
+	north, err := strconv.ParseFloat(northStr, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid north parameter"})
+		return
+	}
+	
+	south, err := strconv.ParseFloat(southStr, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid south parameter"})
+		return
+	}
+	
+	east, err := strconv.ParseFloat(eastStr, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid east parameter"})
+		return
+	}
+	
+	west, err := strconv.ParseFloat(westStr, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid west parameter"})
+		return
+	}
+	
+	fmt.Printf("Fetching events in bounds: N=%f, S=%f, E=%f, W=%f\n", north, south, east, west)
+	
+	events, err := fetchEventsInBounds(ctx, north, south, east, west)
+	if err != nil {
+		fmt.Printf("Error fetching events in bounds: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	
+	c.JSON(http.StatusOK, events)
 }
 
