@@ -135,29 +135,73 @@ func queryEventReviews(ctx context.Context, eventID int) ([]Review, error) {
 
 // ---- DB アクセス（範囲内イベント取得）----
 
-func fetchEventsInBounds(ctx context.Context, north, south, east, west float64, isLightweight bool) (interface{}, error) {
+// 期間に応じた日付フィルター条件を生成
+func getPeriodFilter(period string) (string, []interface{}) {
+	jst := mustJST()
+	today := time.Now().In(jst)
+	
+	switch period {
+	case "today":
+		todayStr := today.Format("2006-01-02")
+		return "start_date <= $1::date AND end_date >= $1::date", []interface{}{todayStr}
+		
+	case "weekend":
+		// 今週の土曜日と日曜日を計算
+		weekday := int(today.Weekday())
+		var saturday, sunday time.Time
+		
+		if weekday == 0 { // 日曜日
+			saturday = today.AddDate(0, 0, -1)
+			sunday = today
+		} else if weekday == 6 { // 土曜日
+			saturday = today
+			sunday = today.AddDate(0, 0, 1)
+		} else { // 月曜〜金曜
+			daysUntilSaturday := 6 - weekday
+			saturday = today.AddDate(0, 0, daysUntilSaturday)
+			sunday = saturday.AddDate(0, 0, 1)
+		}
+		
+		saturdayStr := saturday.Format("2006-01-02")
+		sundayStr := sunday.Format("2006-01-02")
+		return "(start_date <= $1::date AND end_date >= $1::date) OR (start_date <= $2::date AND end_date >= $2::date)", []interface{}{saturdayStr, sundayStr}
+		
+	case "all":
+		// 制限なし（ただし、古いイベントは除外）
+		oneMonthAgo := today.AddDate(0, -1, 0).Format("2006-01-02")
+		return "end_date >= $1::date", []interface{}{oneMonthAgo}
+		
+	default:
+		// デフォルトは今日
+		todayStr := today.Format("2006-01-02")
+		return "start_date <= $1::date AND end_date >= $1::date", []interface{}{todayStr}
+	}
+}
+
+func fetchEventsInBounds(ctx context.Context, north, south, east, west float64, isLightweight bool, period string) (interface{}, error) {
 	conn, err := pgx.Connect(ctx, os.Getenv("DATABASE_URL"))
 	if err != nil {
 		return nil, fmt.Errorf("DB接続失敗: %w", err)
 	}
 	defer conn.Close(ctx)
 
-	// 今日開催中のイベントで、かつ指定された範囲内にあるものを取得
-	jst := mustJST()
-	today := time.Now().In(jst).Format("2006-01-02")
+	// 期間フィルター条件を取得
+	periodFilter, periodArgs := getPeriodFilter(period)
 	
 	if isLightweight {
 		// 軽量データ（マップ表示用）
-		q := `
+		q := fmt.Sprintf(`
 			SELECT id, ST_AsText(lnglat), icon_category
 			FROM events
-			WHERE start_date <= $1::date AND end_date >= $1::date
-			  AND ST_X(lnglat::geometry) BETWEEN $2 AND $3
-			  AND ST_Y(lnglat::geometry) BETWEEN $4 AND $5
+			WHERE (%s)
+			  AND ST_X(lnglat::geometry) BETWEEN $%d AND $%d
+			  AND ST_Y(lnglat::geometry) BETWEEN $%d AND $%d
 			ORDER BY start_date, title
-		`
+		`, periodFilter, len(periodArgs)+1, len(periodArgs)+2, len(periodArgs)+3, len(periodArgs)+4)
 		
-		rows, err := conn.Query(ctx, q, today, west, east, south, north)
+		// パラメータを組み合わせ
+		queryArgs := append(periodArgs, west, east, south, north)
+		rows, err := conn.Query(ctx, q, queryArgs...)
 		if err != nil {
 			return nil, fmt.Errorf("クエリ失敗: %w", err)
 		}
@@ -183,16 +227,18 @@ func fetchEventsInBounds(ctx context.Context, north, south, east, west float64, 
 		return results, rows.Err()
 	} else {
 		// 完全データ（従来の形式）
-		q := `
+		q := fmt.Sprintf(`
 			SELECT id, title, start_date, end_date, ST_AsText(lnglat), location, category, site_url, icon_category
 			FROM events
-			WHERE start_date <= $1::date AND end_date >= $1::date
-			  AND ST_X(lnglat::geometry) BETWEEN $2 AND $3
-			  AND ST_Y(lnglat::geometry) BETWEEN $4 AND $5
+			WHERE (%s)
+			  AND ST_X(lnglat::geometry) BETWEEN $%d AND $%d
+			  AND ST_Y(lnglat::geometry) BETWEEN $%d AND $%d
 			ORDER BY start_date, title
-		`
+		`, periodFilter, len(periodArgs)+1, len(periodArgs)+2, len(periodArgs)+3, len(periodArgs)+4)
 		
-		rows, err := conn.Query(ctx, q, today, west, east, south, north)
+		// パラメータを組み合わせ
+		queryArgs := append(periodArgs, west, east, south, north)
+		rows, err := conn.Query(ctx, q, queryArgs...)
 		if err != nil {
 			return nil, fmt.Errorf("クエリ失敗: %w", err)
 		}

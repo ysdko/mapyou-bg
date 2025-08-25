@@ -91,6 +91,7 @@ func getEventsBoundsHandler(c *gin.Context) {
 	eastStr := c.Query("east")
 	westStr := c.Query("west")
 	fieldsStr := c.Query("fields") // 軽量データオプション
+	periodStr := c.Query("period")  // 期間フィルター
 	
 	if northStr == "" || southStr == "" || eastStr == "" || westStr == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "missing required parameters: north, south, east, west"})
@@ -121,12 +122,17 @@ func getEventsBoundsHandler(c *gin.Context) {
 		return
 	}
 	
-	fmt.Printf("Fetching events in bounds: N=%f, S=%f, E=%f, W=%f, fields=%s\n", north, south, east, west, fieldsStr)
+	fmt.Printf("Fetching events in bounds: N=%f, S=%f, E=%f, W=%f, fields=%s, period=%s\n", north, south, east, west, fieldsStr, periodStr)
 	
 	// fieldsパラメータがある場合は軽量データのみを取得
 	isLightweight := fieldsStr != ""
 	
-	events, err := fetchEventsInBounds(ctx, north, south, east, west, isLightweight)
+	// periodが指定されていない場合はデフォルトで"today"
+	if periodStr == "" {
+		periodStr = "today"
+	}
+	
+	events, err := fetchEventsInBounds(ctx, north, south, east, west, isLightweight, periodStr)
 	if err != nil {
 		fmt.Printf("Error fetching events in bounds: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
