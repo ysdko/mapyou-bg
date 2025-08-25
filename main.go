@@ -34,6 +34,7 @@ func main() {
 
 	// ルート
 	r.GET("/events/bounds", getEventsBoundsHandler)
+	r.GET("/events/:event_id", getEventDetailsHandler)  // 新しいエンドポイント
 	r.POST("/reviews", postEventMessageHandler)
 	r.GET("/reviews/:event_id", getEventReviewHandler)
 

@@ -90,6 +90,7 @@ func getEventsBoundsHandler(c *gin.Context) {
 	southStr := c.Query("south")
 	eastStr := c.Query("east")
 	westStr := c.Query("west")
+	fieldsStr := c.Query("fields") // 軽量データオプション
 	
 	if northStr == "" || southStr == "" || eastStr == "" || westStr == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "missing required parameters: north, south, east, west"})
@@ -120,9 +121,12 @@ func getEventsBoundsHandler(c *gin.Context) {
 		return
 	}
 	
-	fmt.Printf("Fetching events in bounds: N=%f, S=%f, E=%f, W=%f\n", north, south, east, west)
+	fmt.Printf("Fetching events in bounds: N=%f, S=%f, E=%f, W=%f, fields=%s\n", north, south, east, west, fieldsStr)
 	
-	events, err := fetchEventsInBounds(ctx, north, south, east, west)
+	// fieldsパラメータがある場合は軽量データのみを取得
+	isLightweight := fieldsStr != ""
+	
+	events, err := fetchEventsInBounds(ctx, north, south, east, west, isLightweight)
 	if err != nil {
 		fmt.Printf("Error fetching events in bounds: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -130,5 +134,35 @@ func getEventsBoundsHandler(c *gin.Context) {
 	}
 	
 	c.JSON(http.StatusOK, events)
+}
+
+// 個別のイベント詳細を取得するハンドラー
+func getEventDetailsHandler(c *gin.Context) {
+	fmt.Println("getEventDetailsHandler called")
+	ctx := c.Request.Context()
+	
+	// パラメータからevent_idを取得
+	eventIDStr := c.Param("event_id")
+	eventID, err := strconv.Atoi(eventIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid event_id"})
+		return
+	}
+	
+	fmt.Printf("Fetching event details for ID: %d\n", eventID)
+	
+	event, err := fetchEventDetails(ctx, eventID)
+	if err != nil {
+		fmt.Printf("Error fetching event details: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	
+	if event == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "event not found"})
+		return
+	}
+	
+	c.JSON(http.StatusOK, event)
 }
 

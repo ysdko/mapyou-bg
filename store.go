@@ -26,6 +26,14 @@ type Event struct {
 	IconCategory int       `json:"icon_category"`
 }
 
+// マップ表示用の軽量なイベント構造体
+type LightweightEvent struct {
+	ID           int     `json:"id"`
+	Lat          float64 `json:"lat"`
+	Lng          float64 `json:"lng"`
+	IconCategory int     `json:"icon_category"`
+}
+
 type Review struct {
 	ID        int64     `json:"id"`
 	UserID    string    `json:"user_id"`
@@ -56,9 +64,7 @@ func mustJST() *time.Location {
 // ---- DB アクセス（メッセージ挿入）----
 
 func insertEventMessage(ctx context.Context, userID string, eventID int, comment string, rating int) error {
-	fmt.Println("erroraaaaaafefweasfsedgagsa")
 	conn, err := pgx.Connect(ctx, os.Getenv("DATABASE_URL"))
-	fmt.Println("erroraaaaaafefweasfsedgagsa")
 	if err != nil {
 
 		return fmt.Errorf("DB接続失敗: %w", err)
@@ -129,49 +135,124 @@ func queryEventReviews(ctx context.Context, eventID int) ([]Review, error) {
 
 // ---- DB アクセス（範囲内イベント取得）----
 
-func fetchEventsInBounds(ctx context.Context, north, south, east, west float64) ([]Event, error) {
+func fetchEventsInBounds(ctx context.Context, north, south, east, west float64, isLightweight bool) (interface{}, error) {
 	conn, err := pgx.Connect(ctx, os.Getenv("DATABASE_URL"))
 	if err != nil {
 		return nil, fmt.Errorf("DB接続失敗: %w", err)
 	}
 	defer conn.Close(ctx)
 
-	// PostGISのST_Contains関数を使用して範囲内のイベントを取得
 	// 今日開催中のイベントで、かつ指定された範囲内にあるものを取得
 	jst := mustJST()
 	today := time.Now().In(jst).Format("2006-01-02")
 	
+	if isLightweight {
+		// 軽量データ（マップ表示用）
+		q := `
+			SELECT id, ST_AsText(lnglat), icon_category
+			FROM events
+			WHERE start_date <= $1::date AND end_date >= $1::date
+			  AND ST_X(lnglat::geometry) BETWEEN $2 AND $3
+			  AND ST_Y(lnglat::geometry) BETWEEN $4 AND $5
+			ORDER BY start_date, title
+		`
+		
+		rows, err := conn.Query(ctx, q, today, west, east, south, north)
+		if err != nil {
+			return nil, fmt.Errorf("クエリ失敗: %w", err)
+		}
+		defer rows.Close()
+
+		var results []LightweightEvent
+		for rows.Next() {
+			var e LightweightEvent
+			var point string
+			if err := rows.Scan(&e.ID, &point, &e.IconCategory); err != nil {
+				return nil, fmt.Errorf("スキャン失敗: %w", err)
+			}
+			// POINT(lng lat) → e.Lng / e.Lat
+			point = strings.TrimPrefix(point, "POINT(")
+			point = strings.TrimSuffix(point, ")")
+			parts := strings.Split(point, " ")
+			if len(parts) == 2 {
+				fmt.Sscanf(parts[0], "%f", &e.Lng)
+				fmt.Sscanf(parts[1], "%f", &e.Lat)
+			}
+			results = append(results, e)
+		}
+		return results, rows.Err()
+	} else {
+		// 完全データ（従来の形式）
+		q := `
+			SELECT id, title, start_date, end_date, ST_AsText(lnglat), location, category, site_url, icon_category
+			FROM events
+			WHERE start_date <= $1::date AND end_date >= $1::date
+			  AND ST_X(lnglat::geometry) BETWEEN $2 AND $3
+			  AND ST_Y(lnglat::geometry) BETWEEN $4 AND $5
+			ORDER BY start_date, title
+		`
+		
+		rows, err := conn.Query(ctx, q, today, west, east, south, north)
+		if err != nil {
+			return nil, fmt.Errorf("クエリ失敗: %w", err)
+		}
+		defer rows.Close()
+
+		var results []Event
+		for rows.Next() {
+			var e Event
+			var point string
+			if err := rows.Scan(&e.ID, &e.Title, &e.StartDate, &e.EndDate, &point, &e.Location, &e.Category, &e.SiteUrl, &e.IconCategory); err != nil {
+				return nil, fmt.Errorf("スキャン失敗: %w", err)
+			}
+			// POINT(lng lat) → e.Lng / e.Lat
+			point = strings.TrimPrefix(point, "POINT(")
+			point = strings.TrimSuffix(point, ")")
+			parts := strings.Split(point, " ")
+			if len(parts) == 2 {
+				fmt.Sscanf(parts[0], "%f", &e.Lng)
+				fmt.Sscanf(parts[1], "%f", &e.Lat)
+			}
+			results = append(results, e)
+		}
+		return results, rows.Err()
+	}
+}
+
+// 個別のイベント詳細を取得
+func fetchEventDetails(ctx context.Context, eventID int) (*Event, error) {
+	conn, err := pgx.Connect(ctx, os.Getenv("DATABASE_URL"))
+	if err != nil {
+		return nil, fmt.Errorf("DB接続失敗: %w", err)
+	}
+	defer conn.Close(ctx)
+
 	q := `
 		SELECT id, title, start_date, end_date, ST_AsText(lnglat), location, category, site_url, icon_category
 		FROM events
-		WHERE start_date <= $1::date AND end_date >= $1::date
-		  AND ST_X(lnglat::geometry) BETWEEN $2 AND $3
-		  AND ST_Y(lnglat::geometry) BETWEEN $4 AND $5
-		ORDER BY start_date, title
+		WHERE id = $1
 	`
 	
-	rows, err := conn.Query(ctx, q, today, west, east, south, north)
+	row := conn.QueryRow(ctx, q, eventID)
+	
+	var e Event
+	var point string
+	err = row.Scan(&e.ID, &e.Title, &e.StartDate, &e.EndDate, &point, &e.Location, &e.Category, &e.SiteUrl, &e.IconCategory)
 	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil // イベントが見つからない場合
+		}
 		return nil, fmt.Errorf("クエリ失敗: %w", err)
 	}
-	defer rows.Close()
-
-	var results []Event
-	for rows.Next() {
-		var e Event
-		var point string
-		if err := rows.Scan(&e.ID, &e.Title, &e.StartDate, &e.EndDate, &point, &e.Location, &e.Category, &e.SiteUrl, &e.IconCategory); err != nil {
-			return nil, fmt.Errorf("スキャン失敗: %w", err)
-		}
-		// POINT(lng lat) → e.Lng / e.Lat
-		point = strings.TrimPrefix(point, "POINT(")
-		point = strings.TrimSuffix(point, ")")
-		parts := strings.Split(point, " ")
-		if len(parts) == 2 {
-			fmt.Sscanf(parts[0], "%f", &e.Lng)
-			fmt.Sscanf(parts[1], "%f", &e.Lat)
-		}
-		results = append(results, e)
+	
+	// POINT(lng lat) → e.Lng / e.Lat
+	point = strings.TrimPrefix(point, "POINT(")
+	point = strings.TrimSuffix(point, ")")
+	parts := strings.Split(point, " ")
+	if len(parts) == 2 {
+		fmt.Sscanf(parts[0], "%f", &e.Lng)
+		fmt.Sscanf(parts[1], "%f", &e.Lat)
 	}
-	return results, rows.Err()
+	
+	return &e, nil
 }
